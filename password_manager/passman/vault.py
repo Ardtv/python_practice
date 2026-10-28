@@ -32,9 +32,8 @@ class Vault:
 
     def add_entry(self, service: str, login: str, password: str, note: str = "") -> None:
         """Добавляет запись и сохраняет хранилище; бросает EntryExistsError при дубликате"""
-        for entry in self.entries:
-            if entry["service"].lower() == service.lower() and entry["login"].lower() == login.lower():
-                raise EntryExistsError(f"Запись {service} / {login} уже существует")
+        if self.has_entry(service, login):
+            raise EntryExistsError(f"Запись {service} / {login} уже существует")
         now = _now()
         new_entry = {"service": service,
                      "login": login,
@@ -46,12 +45,12 @@ class Vault:
         self.save()
 
     def find_entries(self, service: str) -> list[dict]:
-        """Возвращает все записи с указанным сервисом (без учёта регистра)"""
+        """Возвращает все записи с указанным сервисом (без учёта регистра), отсортированные по логину"""
         result = []
         for entry in self.entries:
             if entry["service"].lower() == service.lower():
                 result.append(entry)
-        return result
+        return sorted(result, key=lambda e: e["login"].lower())
 
     def delete_entry(self, entry: dict) -> None:
         """Удаляет запись и сохраняет хранилище"""
@@ -61,6 +60,13 @@ class Vault:
     def list_entries(self) -> list[dict]:
         """Возвращает записи, отсортированные по сервису и логину"""
         return sorted(self.entries, key=lambda e: (e["service"].lower(), e["login"].lower()))
+
+    def has_entry(self, service: str, login: str) -> bool:
+        """Проверяет, есть ли запись с таким сервисом и логином (без учёта регистра)"""
+        for entry in self.entries:
+            if entry["service"].lower() == service.lower() and entry["login"].lower() == login.lower():
+                return True
+        return False
 
 
 def create_vault(path: str, password: str) -> Vault:
