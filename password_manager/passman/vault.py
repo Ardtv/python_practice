@@ -1,7 +1,17 @@
 import json
 import os
+from datetime import datetime
 
 from passman import storage, crypto
+
+
+def _now() -> str:
+    """Текущее время в формате ISO с точностью до секунд"""
+    return datetime.now().isoformat(timespec="seconds")
+
+
+class EntryExistsError(Exception):
+    """Запись с таким сервисом и логином уже существует"""
 
 
 class Vault:
@@ -19,6 +29,38 @@ class Vault:
         plaintext = json.dumps(self.entries, ensure_ascii=False).encode("utf-8")
         token = crypto.encrypt(plaintext, self.key)
         storage.write_vault(self.path, self.salt, self.iterations, token)
+
+    def add_entry(self, service: str, login: str, password: str, note: str = "") -> None:
+        """Добавляет запись и сохраняет хранилище; бросает EntryExistsError при дубликате"""
+        for entry in self.entries:
+            if entry["service"].lower() == service.lower() and entry["login"].lower() == login.lower():
+                raise EntryExistsError(f"Запись {service} / {login} уже существует")
+        now = _now()
+        new_entry = {"service": service,
+                     "login": login,
+                     "password": password,
+                     "note": note,
+                     "created": now,
+                     "updated": now}
+        self.entries.append(new_entry)
+        self.save()
+
+    def find_entries(self, service: str) -> list[dict]:
+        """Возвращает все записи с указанным сервисом (без учёта регистра)"""
+        result = []
+        for entry in self.entries:
+            if entry["service"].lower() == service.lower():
+                result.append(entry)
+        return result
+
+    def delete_entry(self, entry: dict) -> None:
+        """Удаляет запись и сохраняет хранилище"""
+        self.entries.remove(entry)
+        self.save()
+
+    def list_entries(self) -> list[dict]:
+        """Возвращает записи, отсортированные по сервису и логину"""
+        return sorted(self.entries, key=lambda e: (e["service"].lower(), e["login"].lower()))
 
 
 def create_vault(path: str, password: str) -> Vault:
@@ -40,3 +82,4 @@ def open_vault(path: str, password: str) -> Vault:
     plaintext = crypto.decrypt(token, key)
     entries = json.loads(plaintext.decode("utf-8"))
     return Vault(path, key, salt, iterations, entries)
+
