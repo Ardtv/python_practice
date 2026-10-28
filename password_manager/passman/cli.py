@@ -4,6 +4,7 @@ import sys
 import termios
 import time
 from getpass import getpass
+import threading
 
 import pyperclip
 
@@ -54,6 +55,8 @@ class Shell(cmd.Cmd):
     def __init__(self, v: vault.Vault) -> None:
         super().__init__()
         self.vault = v
+        self._clipboard_timer = None
+        self._clipboard_value = None
 
     def emptyline(self) -> None:
         pass
@@ -148,12 +151,44 @@ class Shell(cmd.Cmd):
         entry = self._choose_entry(service)
         if entry is None:
             return
+        if self._clipboard_timer is not None:
+            self._clipboard_timer.cancel()
         pyperclip.copy(entry['password'])
+        self._clipboard_value = entry['password']
+        self._clipboard_timer = threading.Timer(CLIPBOARD_TIMEOUT, self._clear_clipboard)
+        self._clipboard_timer.daemon = True
+        self._clipboard_timer.start()
         print(f"Логин: {entry['login']}")
         if entry['note']:
             print(f"Заметка: {entry['note']}")
         print(f"Пароль скопирован в буфер обмена на {CLIPBOARD_TIMEOUT} секунд")
 
+    def _clear_clipboard(self) -> None:
+        """Очищает буфер, если там еще есть пароль"""
+        if self._clipboard_value is not None and pyperclip.paste() == self._clipboard_value:
+            pyperclip.copy("")
+        self._clipboard_value = None
+
+    def close(self) -> None:
+        """Отменяет таймер и очищает буфер при выходе"""
+        if self._clipboard_timer is not None:
+            self._clipboard_timer.cancel()
+            self._clear_clipboard()
+
+    def do_delete(self, arg: str) -> None:
+        """Удалить запись: delete <сервис>"""
+        service = self._ask_service(arg)
+        if service is None:
+            return
+        entry = self._choose_entry(service)
+        if entry is None:
+            return
+        answer = input(f"Удалить {entry['service']} / {entry['login']}? [да/НЕТ]: ").strip().lower()
+        if answer not in ('да', 'yes', 'д', 'y'):
+            print("Удаление отменено")
+            return
+        self.vault.delete_entry(entry)
+        print("Запись удалена")
 
 def main() -> None:
     """Точка входа: создание или открытие хранилища"""
@@ -163,7 +198,11 @@ def main() -> None:
         else:
             v = _login()
         print(f"Хранилище открыто. Записей: {len(v.entries)}")
-        Shell(v).cmdloop()
+        shell = Shell(v)
+        try:
+            shell.cmdloop()
+        finally:
+            shell.close()
     except storage.VaultCorruptedError as e:
         print(f"Ошибка: {e}")
         sys.exit(1)
