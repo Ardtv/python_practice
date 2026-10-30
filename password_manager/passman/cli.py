@@ -2,13 +2,14 @@ import cmd
 import os
 import sys
 import termios
-import time
-from getpass import getpass
 import threading
+import time
+
+from getpass import getpass
 
 import pyperclip
 
-from passman import crypto, storage, vault
+from passman import crypto, storage, vault, generator
 
 VAULT_PATH = "vault.dat"
 MAX_ATTEMPTS = 3
@@ -95,14 +96,39 @@ class Shell(cmd.Cmd):
         if self.vault.has_entry(service, login):
             print(f"Запись {service} / {login} уже существует")
             return
-        password = getpass("Пароль: ")
-        if not password:
-            print("Пароль не может быть пустым")
-            return
-        confirm = getpass("Повторите пароль для подтверждения: ")
-        if confirm != password:
-            print("Пароли не совпадают")
-            return
+        answer = input("Сгенерировать пароль? [ДА/нет]: ").lower().strip()
+        if answer in ("", "д", "да", "y", "yes"):
+            length = input(f"Длина [{generator.DEFAULT_LENGTH}]: ").strip()
+            if not length:
+                length = generator.DEFAULT_LENGTH
+            elif not length.isdigit():
+                print("Длина должна быть числом")
+                return
+            else:
+                length = int(length)
+                if length < generator.MIN_LENGTH:
+                    print(f"Слишком маленькая длина. Минимальное количество символов - {generator.MIN_LENGTH}")
+                    return
+            symbol_answer = input("Спецсимволы? [ДА/нет]: ").lower().strip()
+            use_symbols = symbol_answer in ("", "д", "да", "y", "yes")
+            digits_answer = input("Цифры? [ДА/нет]: ").lower().strip()
+            use_digits = digits_answer in ("", "д", "да", "y", "yes")
+            try:
+                password = generator.generate_password(length, use_digits=use_digits, use_symbols=use_symbols)
+            except ValueError as e:
+                print(e)
+                return
+            self._copy_to_clipboard(password)
+            print(f"Пароль сгенерирован и скопирован на {CLIPBOARD_TIMEOUT} секунд в буфер обмена")
+        else:
+            password = getpass("Пароль: ")
+            if not password:
+                print("Пароль не может быть пустым")
+                return
+            confirm = getpass("Повторите пароль для подтверждения: ")
+            if confirm != password:
+                print("Пароли не совпадают")
+                return
         note = input("Заметка (необязательно): ").strip()
         try:
             self.vault.add_entry(service, login, password, note)
@@ -151,13 +177,7 @@ class Shell(cmd.Cmd):
         entry = self._choose_entry(service)
         if entry is None:
             return
-        if self._clipboard_timer is not None:
-            self._clipboard_timer.cancel()
-        pyperclip.copy(entry['password'])
-        self._clipboard_value = entry['password']
-        self._clipboard_timer = threading.Timer(CLIPBOARD_TIMEOUT, self._clear_clipboard)
-        self._clipboard_timer.daemon = True
-        self._clipboard_timer.start()
+        self._copy_to_clipboard(entry['password'])
         print(f"Логин: {entry['login']}")
         if entry['note']:
             print(f"Заметка: {entry['note']}")
@@ -169,11 +189,21 @@ class Shell(cmd.Cmd):
             pyperclip.copy("")
         self._clipboard_value = None
 
+    def _copy_to_clipboard(self, password: str) -> None:
+        """Переносит пароль и запускает таймер автоочистки без вывода"""
+        if self._clipboard_timer is not None:
+            self._clipboard_timer.cancel()
+        pyperclip.copy(password)
+        self._clipboard_value = password
+        self._clipboard_timer = threading.Timer(CLIPBOARD_TIMEOUT, self._clear_clipboard)
+        self._clipboard_timer.daemon = True
+        self._clipboard_timer.start()
+
     def close(self) -> None:
         """Отменяет таймер и очищает буфер при выходе"""
         if self._clipboard_timer is not None:
             self._clipboard_timer.cancel()
-            self._clear_clipboard()
+        self._clear_clipboard()
 
     def do_delete(self, arg: str) -> None:
         """Удалить запись: delete <сервис>"""
@@ -189,6 +219,7 @@ class Shell(cmd.Cmd):
             return
         self.vault.delete_entry(entry)
         print("Запись удалена")
+
 
 def main() -> None:
     """Точка входа: создание или открытие хранилища"""
