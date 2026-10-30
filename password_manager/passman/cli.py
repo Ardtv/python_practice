@@ -137,28 +137,6 @@ class Shell(cmd.Cmd):
             return
         print(f"Запись добавлена: {service} - {login}")
 
-    def _choose_entry(self, service: str) -> dict | None:
-        """Находит запись по сервису; при нескольких вариантах спрашивает, какой выбрать"""
-        entries = self.vault.find_entries(service)
-        if not entries:
-            print(f"Записи для {service} не найдены")
-            return None
-        elif len(entries) == 1:
-            return entries[0]
-        else:
-            print("Найдено несколько записей:")
-            for i, entry in enumerate(entries, start=1):
-                print(f"{i}. {entry['login']}")
-            choice = input("Номер записи: ").strip()
-            if not choice.isdigit():
-                print("Неверный номер")
-                return None
-            n = int(choice)
-            if not 1 <= n <= len(entries):
-                print("Неверный номер")
-                return None
-            return entries[n - 1]
-
     def _ask_service(self, arg: str) -> str | None:
         """Берёт сервис из аргумента или спрашивает; None, если пусто"""
         service = arg.strip()
@@ -219,6 +197,28 @@ class Shell(cmd.Cmd):
             return
         self.vault.delete_entry(entry)
         print("Запись удалена")
+
+    def _choose_entry(self, service: str) -> dict | None:
+        """Находит запись по сервису; при нескольких вариантах спрашивает, какой выбрать"""
+        entries = self.vault.find_entries(service)
+        if not entries:
+            print(f"Записи для {service} не найдены")
+            return None
+        elif len(entries) == 1:
+            return entries[0]
+        else:
+            print("Найдено несколько записей:")
+            for i, entry in enumerate(entries, start=1):
+                print(f"{i}. {entry['login']}")
+            choice = input("Номер записи: ").strip()
+            if not choice.isdigit():
+                print("Неверный номер")
+                return None
+            n = int(choice)
+            if not 1 <= n <= len(entries):
+                print("Неверный номер")
+                return None
+            return entries[n - 1]
 
 
 def main() -> None:
