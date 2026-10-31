@@ -88,4 +88,3 @@ def open_vault(path: str, password: str) -> Vault:
     plaintext = crypto.decrypt(token, key)
     entries = json.loads(plaintext.decode("utf-8"))
     return Vault(path, key, salt, iterations, entries)
-

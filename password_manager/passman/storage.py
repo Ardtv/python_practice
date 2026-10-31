@@ -1,6 +1,6 @@
+import base64
 import json
 import os
-import base64
 
 FORMAT_VERSION = 1
 KDF_NAME = "pbkdf2-sha256"

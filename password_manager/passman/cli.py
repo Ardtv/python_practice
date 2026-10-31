@@ -4,7 +4,6 @@ import sys
 import termios
 import threading
 import time
-
 from getpass import getpass
 
 import pyperclip
@@ -74,16 +73,6 @@ class Shell(cmd.Cmd):
         for i, entry in enumerate(entries, start=1):
             print(f"{i}. {entry['service']} - {entry['login']}")
 
-    def do_exit(self, arg: str) -> bool:
-        """Выйти из программы"""
-        print("До свидания")
-        return True
-
-    def do_EOF(self, arg: str) -> bool:
-        """Выйти (Ctrl+D)"""
-        print()
-        return self.do_exit(arg)
-
     def do_add(self, arg: str) -> None:
         """Добавить запись: add <сервис>"""
         service = self._ask_service(arg)
@@ -137,16 +126,6 @@ class Shell(cmd.Cmd):
             return
         print(f"Запись добавлена: {service} - {login}")
 
-    def _ask_service(self, arg: str) -> str | None:
-        """Берёт сервис из аргумента или спрашивает; None, если пусто"""
-        service = arg.strip()
-        if not service:
-            service = input("Сервис: ").strip()
-            if not service:
-                print("Сервис не может быть пустым")
-                return None
-        return service
-
     def do_get(self, arg: str) -> None:
         """Скопировать пароль в буфер: get <сервис>"""
         service = self._ask_service(arg)
@@ -160,28 +139,6 @@ class Shell(cmd.Cmd):
         if entry['note']:
             print(f"Заметка: {entry['note']}")
         print(f"Пароль скопирован в буфер обмена на {CLIPBOARD_TIMEOUT} секунд")
-
-    def _clear_clipboard(self) -> None:
-        """Очищает буфер, если там еще есть пароль"""
-        if self._clipboard_value is not None and pyperclip.paste() == self._clipboard_value:
-            pyperclip.copy("")
-        self._clipboard_value = None
-
-    def _copy_to_clipboard(self, password: str) -> None:
-        """Переносит пароль и запускает таймер автоочистки без вывода"""
-        if self._clipboard_timer is not None:
-            self._clipboard_timer.cancel()
-        pyperclip.copy(password)
-        self._clipboard_value = password
-        self._clipboard_timer = threading.Timer(CLIPBOARD_TIMEOUT, self._clear_clipboard)
-        self._clipboard_timer.daemon = True
-        self._clipboard_timer.start()
-
-    def close(self) -> None:
-        """Отменяет таймер и очищает буфер при выходе"""
-        if self._clipboard_timer is not None:
-            self._clipboard_timer.cancel()
-        self._clear_clipboard()
 
     def do_delete(self, arg: str) -> None:
         """Удалить запись: delete <сервис>"""
@@ -197,6 +154,26 @@ class Shell(cmd.Cmd):
             return
         self.vault.delete_entry(entry)
         print("Запись удалена")
+
+    def do_exit(self, arg: str) -> bool:
+        """Выйти из программы"""
+        print("До свидания")
+        return True
+
+    def do_EOF(self, arg: str) -> bool:
+        """Выйти (Ctrl+D)"""
+        print()
+        return self.do_exit(arg)
+
+    def _ask_service(self, arg: str) -> str | None:
+        """Берёт сервис из аргумента или спрашивает; None, если пусто"""
+        service = arg.strip()
+        if not service:
+            service = input("Сервис: ").strip()
+            if not service:
+                print("Сервис не может быть пустым")
+                return None
+        return service
 
     def _choose_entry(self, service: str) -> dict | None:
         """Находит запись по сервису; при нескольких вариантах спрашивает, какой выбрать"""
@@ -219,6 +196,28 @@ class Shell(cmd.Cmd):
                 print("Неверный номер")
                 return None
             return entries[n - 1]
+
+    def _copy_to_clipboard(self, password: str) -> None:
+        """Переносит пароль и запускает таймер автоочистки без вывода"""
+        if self._clipboard_timer is not None:
+            self._clipboard_timer.cancel()
+        pyperclip.copy(password)
+        self._clipboard_value = password
+        self._clipboard_timer = threading.Timer(CLIPBOARD_TIMEOUT, self._clear_clipboard)
+        self._clipboard_timer.daemon = True
+        self._clipboard_timer.start()
+
+    def _clear_clipboard(self) -> None:
+        """Очищает буфер, если там еще есть пароль"""
+        if self._clipboard_value is not None and pyperclip.paste() == self._clipboard_value:
+            pyperclip.copy("")
+        self._clipboard_value = None
+
+    def close(self) -> None:
+        """Отменяет таймер и очищает буфер при выходе"""
+        if self._clipboard_timer is not None:
+            self._clipboard_timer.cancel()
+        self._clear_clipboard()
 
 
 def main() -> None:
