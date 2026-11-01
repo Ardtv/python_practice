@@ -57,6 +57,16 @@ class Vault:
         self.entries.remove(entry)
         self.save()
 
+    def update_entry(self, entry: dict, login: str, password: str, note: str) -> None:
+        """Изменяет запись и сохраняет хранилище; бросает EntryExistsError, если новый логин занят"""
+        if self.is_login_taken(entry, login):
+            raise EntryExistsError(f"Запись {entry['service']} / {login} уже существует")
+        entry['login'] = login
+        entry['password'] = password
+        entry['note'] = note
+        entry['updated'] = _now()
+        self.save()
+
     def list_entries(self) -> list[dict]:
         """Возвращает записи, отсортированные по сервису и логину"""
         return sorted(self.entries, key=lambda e: (e["service"].lower(), e["login"].lower()))
@@ -67,6 +77,10 @@ class Vault:
             if entry["service"].lower() == service.lower() and entry["login"].lower() == login.lower():
                 return True
         return False
+
+    def is_login_taken(self, entry: dict, login: str) -> bool:
+        """Проверяет, занят ли новый логин другой записью того же сервиса"""
+        return login.lower() != entry['login'].lower() and self.has_entry(entry['service'], login)
 
 
 def create_vault(path: str, password: str) -> Vault:

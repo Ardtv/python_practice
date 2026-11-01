@@ -85,39 +85,9 @@ class Shell(cmd.Cmd):
         if self.vault.has_entry(service, login):
             print(f"Запись {service} / {login} уже существует")
             return
-        answer = input("Сгенерировать пароль? [ДА/нет]: ").lower().strip()
-        if answer in ("", "д", "да", "y", "yes"):
-            length = input(f"Длина [{generator.DEFAULT_LENGTH}]: ").strip()
-            if not length:
-                length = generator.DEFAULT_LENGTH
-            elif not length.isdigit():
-                print("Длина должна быть числом")
-                return
-            else:
-                length = int(length)
-                if length < generator.MIN_LENGTH:
-                    print(f"Слишком маленькая длина. Минимальное количество символов - {generator.MIN_LENGTH}")
-                    return
-            symbol_answer = input("Спецсимволы? [ДА/нет]: ").lower().strip()
-            use_symbols = symbol_answer in ("", "д", "да", "y", "yes")
-            digits_answer = input("Цифры? [ДА/нет]: ").lower().strip()
-            use_digits = digits_answer in ("", "д", "да", "y", "yes")
-            try:
-                password = generator.generate_password(length, use_digits=use_digits, use_symbols=use_symbols)
-            except ValueError as e:
-                print(e)
-                return
-            self._copy_to_clipboard(password)
-            print(f"Пароль сгенерирован и скопирован на {CLIPBOARD_TIMEOUT} секунд в буфер обмена")
-        else:
-            password = getpass("Пароль: ")
-            if not password:
-                print("Пароль не может быть пустым")
-                return
-            confirm = getpass("Повторите пароль для подтверждения: ")
-            if confirm != password:
-                print("Пароли не совпадают")
-                return
+        password = self._ask_new_password()
+        if password is None:
+            return
         note = input("Заметка (необязательно): ").strip()
         try:
             self.vault.add_entry(service, login, password, note)
@@ -139,6 +109,37 @@ class Shell(cmd.Cmd):
         if entry['note']:
             print(f"Заметка: {entry['note']}")
         print(f"Пароль скопирован в буфер обмена на {CLIPBOARD_TIMEOUT} секунд")
+
+    def do_edit(self, arg: str) -> None:
+        """Изменить запись: edit <сервис>"""
+        service = self._ask_service(arg)
+        if service is None:
+            return
+        entry = self._choose_entry(service)
+        if entry is None:
+            return
+        login = input(f"Логин [{entry['login']}]: ").strip() or entry['login']
+        if self.vault.is_login_taken(entry, login):
+            print(f"Запись {entry['service']} / {login} уже существует")
+            return
+        answer = input("Изменить пароль? [да/НЕТ]: ").strip().lower()
+        if answer in ("д", "да", "y", "yes"):
+            password = self._ask_new_password()
+            if password is None:
+                return
+        else:
+            password = entry['password']
+        note = input(f"Заметка [{entry['note']}] (- чтобы очистить): ").strip()
+        if not note:
+            note = entry['note']
+        elif note == "-":
+            note = ""
+        try:
+            self.vault.update_entry(entry, login, password, note)
+        except vault.EntryExistsError as e:
+            print(e)
+            return
+        print(f"Запись обновлена: {entry['service']} - {entry['login']}")
 
     def do_delete(self, arg: str) -> None:
         """Удалить запись: delete <сервис>"""
@@ -196,6 +197,44 @@ class Shell(cmd.Cmd):
                 print("Неверный номер")
                 return None
             return entries[n - 1]
+
+    def _ask_new_password(self) -> str | None:
+        """Спрашивает новый пароль: сгенерировать или ввести вручную; None при ошибке ввода"""
+        answer = input("Сгенерировать пароль? [ДА/нет]: ").lower().strip()
+        if answer in ("", "д", "да", "y", "yes"):
+            length = input(f"Длина [{generator.DEFAULT_LENGTH}]: ").strip()
+            if not length:
+                length = generator.DEFAULT_LENGTH
+            elif not length.isdigit():
+                print("Длина должна быть числом")
+                return None
+            else:
+                length = int(length)
+                if length < generator.MIN_LENGTH:
+                    print(f"Слишком маленькая длина. Минимальное количество символов - {generator.MIN_LENGTH}")
+                    return None
+
+            symbol_answer = input("Спецсимволы? [ДА/нет]: ").lower().strip()
+            use_symbols = symbol_answer in ("", "д", "да", "y", "yes")
+            digits_answer = input("Цифры? [ДА/нет]: ").lower().strip()
+            use_digits = digits_answer in ("", "д", "да", "y", "yes")
+            try:
+                password = generator.generate_password(length, use_digits=use_digits, use_symbols=use_symbols)
+            except ValueError as e:
+                print(e)
+                return None
+            self._copy_to_clipboard(password)
+            print(f"Пароль сгенерирован и скопирован на {CLIPBOARD_TIMEOUT} секунд в буфер обмена")
+        else:
+            password = getpass("Пароль: ")
+            if not password:
+                print("Пароль не может быть пустым")
+                return None
+            confirm = getpass("Повторите пароль для подтверждения: ")
+            if confirm != password:
+                print("Пароли не совпадают")
+                return None
+        return password
 
     def _copy_to_clipboard(self, password: str) -> None:
         """Переносит пароль и запускает таймер автоочистки без вывода"""
