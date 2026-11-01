@@ -8,7 +8,7 @@ from getpass import getpass
 
 import pyperclip
 
-from passman import crypto, storage, vault, generator
+from passman import crypto, storage, manager, generator
 
 VAULT_PATH = "vault.dat"
 MAX_ATTEMPTS = 3
@@ -16,7 +16,7 @@ MIN_PASSWORD_LENGTH = 8
 CLIPBOARD_TIMEOUT = 20
 
 
-def _create_new_vault() -> vault.Vault:
+def _create_new_vault() -> manager.PasswordManager:
     """Создаёт хранилище при первом запуске: запрашивает мастер-пароль дважды"""
     print("Здравствуйте! Хранилище не найдено. Создаём новое")
     while True:
@@ -31,7 +31,7 @@ def _create_new_vault() -> vault.Vault:
         return vault.create_vault(VAULT_PATH, password)
 
 
-def _login() -> vault.Vault:
+def _login() -> manager.PasswordManager:
     """Запрашивает мастер-пароль; после исчерпания попыток завершает программу"""
     for attempt in range(1, MAX_ATTEMPTS + 1):
         password = getpass("Введите мастер-пароль: ")
@@ -52,7 +52,7 @@ class Shell(cmd.Cmd):
     intro = "Введите help для списка команд"
     prompt = "passman> "
 
-    def __init__(self, v: vault.Vault) -> None:
+    def __init__(self, v: manager.PasswordManager) -> None:
         super().__init__()
         self.vault = v
         self._clipboard_timer = None

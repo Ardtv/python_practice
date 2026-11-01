@@ -2,7 +2,7 @@ import base64
 import json
 import os
 
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 KDF_NAME = "pbkdf2-sha256"
 
 
@@ -14,11 +14,12 @@ class VaultCorruptedError(Exception):
     """Файл поврежден или имеет неизвестный формат"""
 
 
-def write_vault(path: str, salt: bytes, iterations: int, token: bytes) -> None:
+def write_vault(path: str, salt: bytes, iterations: int, verifier: str, token: bytes) -> None:
     """Атомарно записывает заголовок и токен в файл хранилища"""
     inform = {"version": FORMAT_VERSION,
               "kdf": KDF_NAME,
               "iterations": iterations,
+              "verifier": verifier,
               "salt": base64.b64encode(salt).decode("ascii"),
               "data": token.decode("ascii")
               }
@@ -30,8 +31,8 @@ def write_vault(path: str, salt: bytes, iterations: int, token: bytes) -> None:
     os.replace(file_path, path)
 
 
-def read_vault(path: str) -> tuple[bytes, int, bytes]:
-    """Читает файл хранилища; возвращает соль, число итераций и токен"""
+def read_vault(path: str) -> tuple[bytes, int, str, bytes]:
+    """Читает файл хранилища; возвращает соль, число итераций, верификатор и токен"""
     try:
         with open(path, "r", encoding="utf-8") as f:
             payload = json.load(f)
@@ -39,7 +40,8 @@ def read_vault(path: str) -> tuple[bytes, int, bytes]:
             raise VaultCorruptedError("Неподдерживаемый формат файла хранилища")
         salt = base64.b64decode(payload["salt"], validate=True)
         iterations = payload["iterations"]
+        verifier = payload["verifier"]
         token = payload["data"].encode("ascii")
-        return salt, iterations, token
+        return salt, iterations, verifier, token
     except (KeyError, ValueError, TypeError, AttributeError) as e:
         raise VaultCorruptedError(f"Файл хранилища {path} повреждён") from e
