@@ -8,7 +8,7 @@ from getpass import getpass
 
 import pyperclip
 
-from passman import crypto, storage, manager, generator
+from passman import storage, manager, generator
 
 VAULT_PATH = "vault.dat"
 MAX_ATTEMPTS = 3
@@ -28,21 +28,23 @@ def _create_new_vault() -> manager.PasswordManager:
         if confirm != password:
             print("Пароли не совпадают")
             continue
-        return vault.create_vault(VAULT_PATH, password)
+        pm = manager.PasswordManager(VAULT_PATH)
+        pm.init_master(password)
+        return pm
 
 
 def _login() -> manager.PasswordManager:
     """Запрашивает мастер-пароль; после исчерпания попыток завершает программу"""
+    pm = manager.PasswordManager(VAULT_PATH)
     for attempt in range(1, MAX_ATTEMPTS + 1):
         password = getpass("Введите мастер-пароль: ")
-        try:
-            return vault.open_vault(VAULT_PATH, password)
-        except crypto.DecryptionError:
-            remaining_attempts = MAX_ATTEMPTS - attempt
-            if remaining_attempts > 0:
-                print(f"Неверный пароль, осталось попыток: {remaining_attempts}")
-                time.sleep(attempt)
-                termios.tcflush(sys.stdin, termios.TCIFLUSH)
+        if pm.unlock(password):
+            return pm
+        remaining_attempts = MAX_ATTEMPTS - attempt
+        if remaining_attempts > 0:
+            print(f"Неверный пароль, осталось попыток: {remaining_attempts}")
+            time.sleep(attempt)
+            termios.tcflush(sys.stdin, termios.TCIFLUSH)
     print("Превышено число попыток")
     sys.exit(1)
 
@@ -52,9 +54,9 @@ class Shell(cmd.Cmd):
     intro = "Введите help для списка команд"
     prompt = "passman> "
 
-    def __init__(self, v: manager.PasswordManager) -> None:
+    def __init__(self, pm: manager.PasswordManager) -> None:
         super().__init__()
-        self.vault = v
+        self.manager = pm
         self._clipboard_timer = None
         self._clipboard_value = None
 
@@ -66,12 +68,12 @@ class Shell(cmd.Cmd):
 
     def do_list(self, arg: str) -> None:
         """Показать все записи (без паролей)"""
-        entries = self.vault.list_entries()
+        entries = self.manager.list_entries()
         if not entries:
             print("Хранилище пусто")
             return
-        for i, entry in enumerate(entries, start=1):
-            print(f"{i}. {entry['service']} - {entry['login']}")
+        for i, name in enumerate(entries, start=1):
+            print(f"{i}. {name}")
 
     def do_add(self, arg: str) -> None:
         """Добавить запись: add <сервис>"""
@@ -82,7 +84,7 @@ class Shell(cmd.Cmd):
         if not login:
             print("Логин не может быть пустым")
             return
-        if self.vault.has_entry(service, login):
+        if self.manager.has_entry(service, login):
             print(f"Запись {service} / {login} уже существует")
             return
         password = self._ask_new_password()
@@ -90,11 +92,11 @@ class Shell(cmd.Cmd):
             return
         note = input("Заметка (необязательно): ").strip()
         try:
-            self.vault.add_entry(service, login, password, note)
-        except vault.EntryExistsError as e:
+            self.manager.add_entry(service, login, password, note)
+        except manager.EntryExistsError as e:
             print(e)
             return
-        print(f"Запись добавлена: {service} - {login}")
+        print(f"Запись добавлена: {service} / {login}")
 
     def do_get(self, arg: str) -> None:
         """Скопировать пароль в буфер: get <сервис>"""
@@ -104,11 +106,17 @@ class Shell(cmd.Cmd):
         entry = self._choose_entry(service)
         if entry is None:
             return
-        self._copy_to_clipboard(entry['password'])
-        print(f"Логин: {entry['login']}")
+        if not self._confirm_master():
+            return
+        login, pwd = self.manager.get_entry(entry['service'], entry['login'])
+        self._copy_to_clipboard(pwd)
+        print(f"Логин: {login}")
         if entry['note']:
             print(f"Заметка: {entry['note']}")
         print(f"Пароль скопирован в буфер обмена на {CLIPBOARD_TIMEOUT} секунд")
+        ans = input("Показать пароль на экране? [да/НЕТ]: ").strip().lower()
+        if ans in ("д", "да", "y", "yes"):
+            print(f"Пароль: {pwd}")
 
     def do_edit(self, arg: str) -> None:
         """Изменить запись: edit <сервис>"""
@@ -119,7 +127,7 @@ class Shell(cmd.Cmd):
         if entry is None:
             return
         login = input(f"Логин [{entry['login']}]: ").strip() or entry['login']
-        if self.vault.is_login_taken(entry, login):
+        if self.manager.is_login_taken(entry, login):
             print(f"Запись {entry['service']} / {login} уже существует")
             return
         answer = input("Изменить пароль? [да/НЕТ]: ").strip().lower()
@@ -135,11 +143,11 @@ class Shell(cmd.Cmd):
         elif note == "-":
             note = ""
         try:
-            self.vault.update_entry(entry, login, password, note)
-        except vault.EntryExistsError as e:
+            self.manager.update_entry(entry, login, password, note)
+        except manager.EntryExistsError as e:
             print(e)
             return
-        print(f"Запись обновлена: {entry['service']} - {entry['login']}")
+        print(f"Запись обновлена: {entry['service']} / {entry['login']}")
 
     def do_delete(self, arg: str) -> None:
         """Удалить запись: delete <сервис>"""
@@ -153,7 +161,7 @@ class Shell(cmd.Cmd):
         if answer not in ('да', 'yes', 'д', 'y'):
             print("Удаление отменено")
             return
-        self.vault.delete_entry(entry)
+        self.manager.delete_entry(entry['service'], entry['login'])
         print("Запись удалена")
 
     def do_exit(self, arg: str) -> bool:
@@ -165,6 +173,14 @@ class Shell(cmd.Cmd):
         """Выйти (Ctrl+D)"""
         print()
         return self.do_exit(arg)
+
+    def _confirm_master(self) -> bool:
+        """Запрашивает мастер-пароль для подтверждения; False, если неверный"""
+        password = getpass("Мастер-пароль для подтверждения: ")
+        if not self.manager.check_password(password):
+            print("Неверный мастер-пароль")
+            return False
+        return True
 
     def _ask_service(self, arg: str) -> str | None:
         """Берёт сервис из аргумента или спрашивает; None, если пусто"""
@@ -178,7 +194,7 @@ class Shell(cmd.Cmd):
 
     def _choose_entry(self, service: str) -> dict | None:
         """Находит запись по сервису; при нескольких вариантах спрашивает, какой выбрать"""
-        entries = self.vault.find_entries(service)
+        entries = self.manager.find_entries(service)
         if not entries:
             print(f"Записи для {service} не найдены")
             return None
@@ -263,11 +279,11 @@ def main() -> None:
     """Точка входа: создание или открытие хранилища"""
     try:
         if not os.path.exists(VAULT_PATH):
-            v = _create_new_vault()
+            pm = _create_new_vault()
         else:
-            v = _login()
-        print(f"Хранилище открыто. Записей: {len(v.entries)}")
-        shell = Shell(v)
+            pm = _login()
+        print(f"Хранилище открыто. Записей: {len(pm.entries)}")
+        shell = Shell(pm)
         try:
             shell.cmdloop()
         finally:

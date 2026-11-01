@@ -14,6 +14,10 @@ class EntryExistsError(Exception):
     """Запись с таким сервисом и логином уже существует"""
 
 
+class EntryNotFoundError(Exception):
+    """Запись не найдена или не определена однозначно"""
+
+
 class PasswordManager:
     """Менеджер паролей: создаётся заблокированным, открывается через unlock"""
 
@@ -53,42 +57,37 @@ class PasswordManager:
         self.entries = json.loads(plaintext.decode("utf-8"))
         return True
 
-    def _persist(self) -> None:
-        """Шифрует записи и сохраняет хранилище на диск"""
-        if self.key is None:
-            raise RuntimeError("Хранилище заблокировано")
-        plaintext = json.dumps(self.entries, ensure_ascii=False).encode("utf-8")
-        token = crypto.encrypt(plaintext, self.key)
-        storage.write_vault(self.path, self.salt, self.iterations, self.verifier, token)
+    def check_password(self, password: str) -> bool:
+        """Проверяет мастер-пароль у открытого хранилища (для подтверждения действий)"""
+        key = crypto.derive_key(password, self.salt, self.iterations)
+        return crypto.check_verifier(key, self.verifier)
 
-    def _load(self) -> tuple[bytes, int, str, bytes]:
-        """Читает заголовок и токен из файла"""
-        return storage.read_vault(self.path)
-
-    def add_entry(self, service: str, login: str, password: str, note: str = "") -> None:
+    def add_entry(self, name: str, login: str, pwd: str, note: str = "") -> None:
         """Добавляет запись и сохраняет хранилище; бросает EntryExistsError при дубликате"""
-        if self.has_entry(service, login):
-            raise EntryExistsError(f"Запись {service} / {login} уже существует")
+        if self.has_entry(name, login):
+            raise EntryExistsError(f"Запись {name} / {login} уже существует")
         now = _now()
-        new_entry = {"service": service,
+        new_entry = {"service": name,
                      "login": login,
-                     "password": password,
+                     "password": pwd,
                      "note": note,
                      "created": now,
                      "updated": now}
         self.entries.append(new_entry)
         self._persist()
 
-    def find_entries(self, service: str) -> list[dict]:
-        """Возвращает все записи с указанным сервисом (без учёта регистра), отсортированные по логину"""
-        result = []
-        for entry in self.entries:
-            if entry["service"].lower() == service.lower():
-                result.append(entry)
-        return sorted(result, key=lambda e: e["login"].lower())
+    def list_entries(self) -> list[str]:
+        """Названия записей вида "сервис / логин", отсортированные"""
+        return [f"{e['service']} / {e['login']}" for e in sorted(self.entries, key=lambda e: (e["service"].lower(), e["login"].lower()))]
 
-    def delete_entry(self, entry: dict) -> None:
-        """Удаляет запись и сохраняет хранилище"""
+    def get_entry(self, name: str, login: str | None = None) -> tuple[str, str]:
+        """Возвращает (логин, пароль) записи; EntryNotFoundError, если не найдена"""
+        entry = self._find_one(name, login)
+        return entry['login'], entry['password']
+
+    def delete_entry(self, name: str, login: str | None = None) -> None:
+        """Удаляет запись по сервису (и логину) и сохраняет хранилище"""
+        entry = self._find_one(name, login)
         self.entries.remove(entry)
         self._persist()
 
@@ -102,9 +101,13 @@ class PasswordManager:
         entry['updated'] = _now()
         self._persist()
 
-    def list_entries(self) -> list[dict]:
-        """Возвращает записи, отсортированные по сервису и логину"""
-        return sorted(self.entries, key=lambda e: (e["service"].lower(), e["login"].lower()))
+    def find_entries(self, service: str) -> list[dict]:
+        """Возвращает все записи с указанным сервисом (без учёта регистра), отсортированные по логину"""
+        result = []
+        for entry in self.entries:
+            if entry["service"].lower() == service.lower():
+                result.append(entry)
+        return sorted(result, key=lambda e: e["login"].lower())
 
     def has_entry(self, service: str, login: str) -> bool:
         """Проверяет, есть ли запись с таким сервисом и логином (без учёта регистра)"""
@@ -116,3 +119,26 @@ class PasswordManager:
     def is_login_taken(self, entry: dict, login: str) -> bool:
         """Проверяет, занят ли новый логин другой записью того же сервиса"""
         return login.lower() != entry['login'].lower() and self.has_entry(entry['service'], login)
+
+    def _find_one(self, name: str, login: str | None = None) -> dict:
+        """Находит одну запись по сервису (и логину); EntryNotFoundError, если нет или неоднозначно"""
+        matches = self.find_entries(name)
+        if login is not None:
+            matches = [e for e in matches if e['login'].lower() == login.lower()]
+        if not matches:
+            raise EntryNotFoundError(f"Запись {name} не найдена")
+        if len(matches) > 1:
+            raise EntryNotFoundError(f"Для {name} несколько записей, укажите логин")
+        return matches[0]
+
+    def _persist(self) -> None:
+        """Шифрует записи и сохраняет хранилище на диск"""
+        if self.key is None:
+            raise RuntimeError("Хранилище заблокировано")
+        plaintext = json.dumps(self.entries, ensure_ascii=False).encode("utf-8")
+        token = crypto.encrypt(plaintext, self.key)
+        storage.write_vault(self.path, self.salt, self.iterations, self.verifier, token)
+
+    def _load(self) -> tuple[bytes, int, str, bytes]:
+        """Читает заголовок и токен из файла"""
+        return storage.read_vault(self.path)
