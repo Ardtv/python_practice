@@ -1,3 +1,5 @@
+"""Криптография: соль, получение ключа из пароля (PBKDF2), проверочный хэш, шифрование Fernet."""
+
 import base64
 import hashlib
 import hmac

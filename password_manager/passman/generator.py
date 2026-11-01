@@ -1,3 +1,5 @@
+"""Генератор надёжных паролей на основе модуля secrets."""
+
 import secrets
 import string
 

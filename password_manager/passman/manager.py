@@ -1,3 +1,5 @@
+"""Класс PasswordManager: мастер-пароль и управление записями."""
+
 import json
 import os
 from datetime import datetime
