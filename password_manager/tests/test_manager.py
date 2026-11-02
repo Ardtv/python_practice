@@ -1,10 +1,10 @@
 """Тесты PasswordManager"""
 
 import pytest
+from conftest import MASTER
 
 from passman import storage
 from passman.manager import EntryNotFoundError, PasswordManager
-from conftest import MASTER
 
 
 def test_unlock_correct_password(pm: PasswordManager, vault_path: str) -> None:

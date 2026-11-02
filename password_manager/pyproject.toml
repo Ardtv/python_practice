@@ -36,3 +36,4 @@ target-version = "py312"
 [tool.mypy]
 strict = true
 python_version = "3.12"
+files = ["passman", "tests", "password_manager.py"]

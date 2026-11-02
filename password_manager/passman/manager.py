@@ -4,7 +4,10 @@ import json
 import os
 from datetime import datetime
 
-from passman import storage, crypto
+from passman import crypto, storage
+
+# Запись хранилища: service, login, password, note, created, updated
+Entry = dict[str, str]
 
 
 def _now() -> str:
@@ -29,7 +32,7 @@ class PasswordManager:
         self.salt = b""
         self.iterations = crypto.DEFAULT_ITERATIONS
         self.verifier = ""
-        self.entries: list[dict] = []
+        self.entries: list[Entry] = []
 
     def init_master(self, password: str) -> None:
         """Создает хранилище и проверочный хэш мастер-пароля; VaultExistsError, если файл уже есть"""
@@ -69,23 +72,28 @@ class PasswordManager:
         if self.has_entry(name, login):
             raise EntryExistsError(f"Запись {name} / {login} уже существует")
         now = _now()
-        new_entry = {"service": name,
-                     "login": login,
-                     "password": pwd,
-                     "note": note,
-                     "created": now,
-                     "updated": now}
+        new_entry = {
+            "service": name,
+            "login": login,
+            "password": pwd,
+            "note": note,
+            "created": now,
+            "updated": now,
+        }
         self.entries.append(new_entry)
         self._persist()
 
     def list_entries(self) -> list[str]:
         """Названия записей вида "сервис / логин", отсортированные"""
-        return [f"{e['service']} / {e['login']}" for e in sorted(self.entries, key=lambda e: (e["service"].lower(), e["login"].lower()))]
+        return [
+            f"{e['service']} / {e['login']}"
+            for e in sorted(self.entries, key=lambda e: (e["service"].lower(), e["login"].lower()))
+        ]
 
     def get_entry(self, name: str, login: str | None = None) -> tuple[str, str]:
         """Возвращает (логин, пароль) записи; EntryNotFoundError, если не найдена"""
         entry = self._find_one(name, login)
-        return entry['login'], entry['password']
+        return entry["login"], entry["password"]
 
     def delete_entry(self, name: str, login: str | None = None) -> None:
         """Удаляет запись по сервису (и логину) и сохраняет хранилище"""
@@ -93,17 +101,17 @@ class PasswordManager:
         self.entries.remove(entry)
         self._persist()
 
-    def update_entry(self, entry: dict, login: str, password: str, note: str) -> None:
+    def update_entry(self, entry: Entry, login: str, password: str, note: str) -> None:
         """Изменяет запись и сохраняет хранилище; бросает EntryExistsError, если новый логин занят"""
         if self.is_login_taken(entry, login):
             raise EntryExistsError(f"Запись {entry['service']} / {login} уже существует")
-        entry['login'] = login
-        entry['password'] = password
-        entry['note'] = note
-        entry['updated'] = _now()
+        entry["login"] = login
+        entry["password"] = password
+        entry["note"] = note
+        entry["updated"] = _now()
         self._persist()
 
-    def find_entries(self, service: str) -> list[dict]:
+    def find_entries(self, service: str) -> list[Entry]:
         """Возвращает все записи с указанным сервисом (без учёта регистра), отсортированные по логину"""
         result = []
         for entry in self.entries:
@@ -114,19 +122,22 @@ class PasswordManager:
     def has_entry(self, service: str, login: str) -> bool:
         """Проверяет, есть ли запись с таким сервисом и логином (без учёта регистра)"""
         for entry in self.entries:
-            if entry["service"].lower() == service.lower() and entry["login"].lower() == login.lower():
+            if (
+                entry["service"].lower() == service.lower()
+                and entry["login"].lower() == login.lower()
+            ):
                 return True
         return False
 
-    def is_login_taken(self, entry: dict, login: str) -> bool:
+    def is_login_taken(self, entry: Entry, login: str) -> bool:
         """Проверяет, занят ли новый логин другой записью того же сервиса"""
-        return login.lower() != entry['login'].lower() and self.has_entry(entry['service'], login)
+        return login.lower() != entry["login"].lower() and self.has_entry(entry["service"], login)
 
-    def _find_one(self, name: str, login: str | None = None) -> dict:
+    def _find_one(self, name: str, login: str | None = None) -> Entry:
         """Находит одну запись по сервису (и логину); EntryNotFoundError, если нет или неоднозначно"""
         matches = self.find_entries(name)
         if login is not None:
-            matches = [e for e in matches if e['login'].lower() == login.lower()]
+            matches = [e for e in matches if e["login"].lower() == login.lower()]
         if not matches:
             raise EntryNotFoundError(f"Запись {name} не найдена")
         if len(matches) > 1:

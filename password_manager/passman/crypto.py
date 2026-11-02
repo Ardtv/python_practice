@@ -22,9 +22,11 @@ def make_verifier(key: bytes) -> str:
     """Проверочный хэш ключа: SHA-256 в hex"""
     return hashlib.sha256(key).hexdigest()
 
+
 def check_verifier(key: bytes, verifier: str) -> bool:
     """Сравнивает хэш ключа с сохранённым за постоянное время"""
     return hmac.compare_digest(make_verifier(key), verifier)
+
 
 def generate_salt() -> bytes:
     """Генерирует случайную соль для получения ключа из пароля"""

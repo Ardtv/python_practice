@@ -11,7 +11,7 @@ from getpass import getpass
 
 import pyperclip
 
-from passman import storage, manager, generator
+from passman import generator, manager, storage
 
 VAULT_PATH = "vault.dat"
 MAX_ATTEMPTS = 3
@@ -54,40 +54,53 @@ def _login() -> manager.PasswordManager:
 
 def _build_parser() -> argparse.ArgumentParser:
     """Описывает аргументы командной строки"""
-    parser = argparse.ArgumentParser(prog="password_manager.py", description="Консольный менеджер паролей")
+    parser = argparse.ArgumentParser(
+        prog="password_manager.py", description="Консольный менеджер паролей"
+    )
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--init", action="store_true", help="создать хранилище и мастер-пароль")
     group.add_argument("--unlock", action="store_true", help="войти в хранилище")
-    group.add_argument("--generate", action="store_true", help="сгенерировать пароль без входа в хранилище")
-    parser.add_argument("--length", type=int, default=generator.DEFAULT_LENGTH, help="длина пароля для --generate")
+    group.add_argument(
+        "--generate", action="store_true", help="сгенерировать пароль без входа в хранилище"
+    )
+    parser.add_argument(
+        "--length", type=int, default=generator.DEFAULT_LENGTH, help="длина пароля для --generate"
+    )
     parser.add_argument("--no-symbols", action="store_true", help="без спецсимволов")
     parser.add_argument("--no-digits", action="store_true", help="без цифр")
     return parser
 
+
 def _run_generate(args: argparse.Namespace) -> None:
     """Генерирует пароль по параметрам командной строки и печатает его"""
     try:
-        password = generator.generate_password(args.length, use_digits=not args.no_digits, use_symbols=not args.no_symbols)
+        password = generator.generate_password(
+            args.length, use_digits=not args.no_digits, use_symbols=not args.no_symbols
+        )
     except ValueError as e:
         print(f"Ошибка: {e}")
         sys.exit(1)
     print(password)
 
+
 class Shell(cmd.Cmd):
     """Интерактивная оболочка менеджера паролей"""
+
     intro = "Введите help для списка команд"
     prompt = "passman> "
 
     def __init__(self, pm: manager.PasswordManager) -> None:
         super().__init__()
         self.manager = pm
-        self._clipboard_timer = None
-        self._clipboard_value = None
+        self._clipboard_timer: threading.Timer | None = None
+        self._clipboard_value: str | None = None
 
-    def emptyline(self) -> None:
-        pass
+    def emptyline(self) -> bool:
+        """Пустая строка ничего не делает (по умолчанию cmd повторяет последнюю команду)"""
+        return False
 
     def default(self, line: str) -> None:
+        """При вводе некорректной команды пишет сообщение об ошибке"""
         print(f"Неизвестная команда: {line}. Введите help")
 
     def do_list(self, arg: str) -> None:
@@ -132,10 +145,10 @@ class Shell(cmd.Cmd):
             return
         if not self._confirm_master():
             return
-        login, pwd = self.manager.get_entry(entry['service'], entry['login'])
+        login, pwd = self.manager.get_entry(entry["service"], entry["login"])
         self._copy_to_clipboard(pwd)
         print(f"Логин: {login}")
-        if entry['note']:
+        if entry["note"]:
             print(f"Заметка: {entry['note']}")
         print(f"Пароль скопирован в буфер обмена на {CLIPBOARD_TIMEOUT} секунд")
         ans = input("Показать пароль на экране? [да/НЕТ]: ").strip().lower()
@@ -150,7 +163,7 @@ class Shell(cmd.Cmd):
         entry = self._choose_entry(service)
         if entry is None:
             return
-        login = input(f"Логин [{entry['login']}]: ").strip() or entry['login']
+        login = input(f"Логин [{entry['login']}]: ").strip() or entry["login"]
         if self.manager.is_login_taken(entry, login):
             print(f"Запись {entry['service']} / {login} уже существует")
             return
@@ -160,10 +173,10 @@ class Shell(cmd.Cmd):
             if password is None:
                 return
         else:
-            password = entry['password']
+            password = entry["password"]
         note = input(f"Заметка [{entry['note']}] (- чтобы очистить): ").strip()
         if not note:
-            note = entry['note']
+            note = entry["note"]
         elif note == "-":
             note = ""
         try:
@@ -182,10 +195,10 @@ class Shell(cmd.Cmd):
         if entry is None:
             return
         answer = input(f"Удалить {entry['service']} / {entry['login']}? [да/НЕТ]: ").strip().lower()
-        if answer not in ('да', 'yes', 'д', 'y'):
+        if answer not in ("да", "yes", "д", "y"):
             print("Удаление отменено")
             return
-        self.manager.delete_entry(entry['service'], entry['login'])
+        self.manager.delete_entry(entry["service"], entry["login"])
         print("Запись удалена")
 
     def do_exit(self, arg: str) -> bool:
@@ -216,7 +229,7 @@ class Shell(cmd.Cmd):
                 return None
         return service
 
-    def _choose_entry(self, service: str) -> dict | None:
+    def _choose_entry(self, service: str) -> manager.Entry | None:
         """Находит запись по сервису; при нескольких вариантах спрашивает, какой выбрать"""
         entries = self.manager.find_entries(service)
         if not entries:
@@ -242,16 +255,18 @@ class Shell(cmd.Cmd):
         """Спрашивает новый пароль: сгенерировать или ввести вручную; None при ошибке ввода"""
         answer = input("Сгенерировать пароль? [ДА/нет]: ").lower().strip()
         if answer in ("", "д", "да", "y", "yes"):
-            length = input(f"Длина [{generator.DEFAULT_LENGTH}]: ").strip()
-            if not length:
+            length_input = input(f"Длина [{generator.DEFAULT_LENGTH}]: ").strip()
+            if not length_input:
                 length = generator.DEFAULT_LENGTH
-            elif not length.isdigit():
+            elif not length_input.isdigit():
                 print("Длина должна быть числом")
                 return None
             else:
-                length = int(length)
+                length = int(length_input)
                 if length < generator.MIN_LENGTH:
-                    print(f"Слишком маленькая длина. Минимальное количество символов - {generator.MIN_LENGTH}")
+                    print(
+                        f"Слишком маленькая длина. Минимальное количество символов - {generator.MIN_LENGTH}"
+                    )
                     return None
 
             symbol_answer = input("Спецсимволы? [ДА/нет]: ").lower().strip()
@@ -259,7 +274,9 @@ class Shell(cmd.Cmd):
             digits_answer = input("Цифры? [ДА/нет]: ").lower().strip()
             use_digits = digits_answer in ("", "д", "да", "y", "yes")
             try:
-                password = generator.generate_password(length, use_digits=use_digits, use_symbols=use_symbols)
+                password = generator.generate_password(
+                    length, use_digits=use_digits, use_symbols=use_symbols
+                )
             except ValueError as e:
                 print(e)
                 return None
@@ -282,9 +299,10 @@ class Shell(cmd.Cmd):
             self._clipboard_timer.cancel()
         pyperclip.copy(password)
         self._clipboard_value = password
-        self._clipboard_timer = threading.Timer(CLIPBOARD_TIMEOUT, self._clear_clipboard)
-        self._clipboard_timer.daemon = True
-        self._clipboard_timer.start()
+        timer = threading.Timer(CLIPBOARD_TIMEOUT, self._clear_clipboard)
+        timer.daemon = True
+        timer.start()
+        self._clipboard_timer = timer
 
     def _clear_clipboard(self) -> None:
         """Очищает буфер, если там еще есть пароль"""
@@ -333,7 +351,6 @@ def main(argv: list[str] | None = None) -> None:
     except (KeyboardInterrupt, EOFError):
         print("\nВыход")
         sys.exit(0)
-
 
 
 if __name__ == "__main__":

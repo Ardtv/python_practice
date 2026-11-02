@@ -18,13 +18,14 @@ class VaultCorruptedError(Exception):
 
 def write_vault(path: str, salt: bytes, iterations: int, verifier: str, token: bytes) -> None:
     """Атомарно записывает заголовок и токен в файл хранилища"""
-    inform = {"version": FORMAT_VERSION,
-              "kdf": KDF_NAME,
-              "iterations": iterations,
-              "verifier": verifier,
-              "salt": base64.b64encode(salt).decode("ascii"),
-              "data": token.decode("ascii")
-              }
+    inform = {
+        "version": FORMAT_VERSION,
+        "kdf": KDF_NAME,
+        "iterations": iterations,
+        "verifier": verifier,
+        "salt": base64.b64encode(salt).decode("ascii"),
+        "data": token.decode("ascii"),
+    }
     file_path = path + ".tmp"
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(inform, f, indent=2)
