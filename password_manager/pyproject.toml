@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "passman"
+version = "1.0.0"
+description = "Консольный менеджер паролей с шифрованием"
+requires-python = ">=3.12"
+dependencies = [
+    "cryptography>=44",
+    "pyperclip>=1.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "types-pyperclip",
+]
+
+[project.scripts]
+passman = "passman.cli:main"
+
+[tool.setuptools]
+packages = ["passman"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
