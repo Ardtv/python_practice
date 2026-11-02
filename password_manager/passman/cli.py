@@ -1,5 +1,6 @@
 """Интерфейс командной строки: вход по мастер-паролю и интерактивное меню команд."""
 
+import argparse
 import cmd
 import os
 import sys
@@ -50,6 +51,27 @@ def _login() -> manager.PasswordManager:
     print("Превышено число попыток")
     sys.exit(1)
 
+
+def _build_parser() -> argparse.ArgumentParser:
+    """Описывает аргументы командной строки"""
+    parser = argparse.ArgumentParser(prog="password_manager.py", description="Консольный менеджер паролей")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--init", action="store_true", help="создать хранилище и мастер-пароль")
+    group.add_argument("--unlock", action="store_true", help="войти в хранилище")
+    group.add_argument("--generate", action="store_true", help="сгенерировать пароль без входа в хранилище")
+    parser.add_argument("--length", type=int, default=generator.DEFAULT_LENGTH, help="длина пароля для --generate")
+    parser.add_argument("--no-symbols", action="store_true", help="без спецсимволов")
+    parser.add_argument("--no-digits", action="store_true", help="без цифр")
+    return parser
+
+def _run_generate(args: argparse.Namespace) -> None:
+    """Генерирует пароль по параметрам командной строки и печатает его"""
+    try:
+        password = generator.generate_password(args.length, use_digits=not args.no_digits, use_symbols=not args.no_symbols)
+    except ValueError as e:
+        print(f"Ошибка: {e}")
+        sys.exit(1)
+    print(password)
 
 class Shell(cmd.Cmd):
     """Интерактивная оболочка менеджера паролей"""
@@ -277,25 +299,41 @@ class Shell(cmd.Cmd):
         self._clear_clipboard()
 
 
-def main() -> None:
-    """Точка входа: создание или открытие хранилища"""
+def main(argv: list[str] | None = None) -> None:
+    """Точка входа: разбор аргументов, создание или открытие хранилища"""
+    args = _build_parser().parse_args(argv)
+    if args.generate:
+        _run_generate(args)
+        return
     try:
-        if not os.path.exists(VAULT_PATH):
+        if args.init:
+            if os.path.exists(VAULT_PATH):
+                print("Хранилище уже существует. Войдите: python password_manager.py --unlock")
+                sys.exit(1)
             pm = _create_new_vault()
-        else:
+        elif args.unlock:
+            if not os.path.exists(VAULT_PATH):
+                print("Хранилище не найдено. Создайте его: python password_manager.py --init")
+                sys.exit(1)
             pm = _login()
+        else:
+            if not os.path.exists(VAULT_PATH):
+                pm = _create_new_vault()
+            else:
+                pm = _login()
         print(f"Хранилище открыто. Записей: {len(pm.entries)}")
         shell = Shell(pm)
         try:
             shell.cmdloop()
         finally:
             shell.close()
-    except storage.VaultCorruptedError as e:
+    except (storage.VaultExistsError, storage.VaultCorruptedError) as e:
         print(f"Ошибка: {e}")
         sys.exit(1)
     except (KeyboardInterrupt, EOFError):
         print("\nВыход")
         sys.exit(0)
+
 
 
 if __name__ == "__main__":
